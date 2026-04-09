@@ -1,0 +1,22 @@
+{
+  "name": "octomate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OctoMate — an ElizaOS GitHub copilot agent for the Nosana Builders Challenge",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently -n agent,web -c blue,magenta \"pnpm --filter agent dev\" \"pnpm --filter web dev\"",
+    "build": "pnpm --filter agent build && pnpm --filter web build",
+    "start": "bash scripts/start.sh",
+    "docker:build": "docker build -t octomate:latest .",
+    "docker:run": "docker run --rm -p 3000:3000 --env-file .env octomate:latest",
+    "lint": "pnpm --filter agent lint && pnpm --filter web lint"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.6.3"
+  }
+}

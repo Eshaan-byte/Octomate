@@ -1,0 +1,32 @@
+node_modules/
+dist/
+build/
+.next/
+out/
+.turbo/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# elizaos data
+data/
+*.db
+*.db-journal
+.eliza/
+
+# logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editor
+.vscode/
+.idea/
+.DS_Store
+
+# misc
+*.tsbuildinfo
+coverage/

@@ -1,0 +1,44 @@
+{
+  "version": "0.1",
+  "type": "container",
+  "meta": {
+    "trigger": "cli",
+    "name": "octomate",
+    "description": "OctoMate — ElizaOS GitHub copilot on Nosana"
+  },
+  "ops": [
+    {
+      "type": "container/run",
+      "id": "octomate",
+      "args": {
+        "image": "docker.io/REPLACE_ME/octomate:latest",
+        "gpu": false,
+        "expose": [
+          {
+            "port": 3000,
+            "healthCheck": {
+              "method": "GET",
+              "path": "/",
+              "expectedStatus": 200,
+              "interval": 30,
+              "timeout": 10
+            }
+          }
+        ],
+        "env": {
+          "NODE_ENV": "production",
+          "PORT": "3000",
+          "AGENT_PORT": "4111",
+          "OPENAI_API_BASE_URL": "https://5i8frj7ann99bbw9gzpprvzj2esugg39hxbb4unypskq.node.k8s.prd.nos.ci/v1",
+          "OPENAI_API_KEY": "nosana",
+          "OPENAI_MODEL": "Qwen3.5-9B-FP8",
+          "LOG_LEVEL": "info"
+        },
+        "resources": {
+          "cpu": "2",
+          "memory": "4Gi"
+        }
+      }
+    }
+  ]
+}

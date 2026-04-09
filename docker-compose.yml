@@ -1,0 +1,14 @@
+services:
+  octomate:
+    build: .
+    image: octomate:latest
+    container_name: octomate
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      AGENT_PORT: "4111"
+    restart: unless-stopped
