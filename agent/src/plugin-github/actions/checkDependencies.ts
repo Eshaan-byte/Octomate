@@ -9,7 +9,7 @@ import { chatCreate } from "../../llm.js";
  * report. Works on any public GitHub repo regardless of language.
  */
 
-type Ecosystem = "node" | "python" | "rust" | "go" | "ruby" | "php";
+type Ecosystem = "node" | "python" | "rust" | "go" | "ruby" | "php" | "r";
 
 interface RawDep {
   name: string;
@@ -44,6 +44,7 @@ const MANIFEST_PATHS: { path: string; ecosystem: Ecosystem }[] = [
   { path: "go.mod", ecosystem: "go" },
   { path: "Gemfile", ecosystem: "ruby" },
   { path: "composer.json", ecosystem: "php" },
+  { path: "DESCRIPTION", ecosystem: "r" },
 ];
 
 async function fetchManifest(
@@ -227,6 +228,70 @@ function parseComposerJson(content: string): RawDep[] {
   }
 }
 
+// Base R packages — shipped with R itself, not on CRAN, so skip them when
+// auditing. Sourced from the standard R distribution's `priority=base` set.
+const R_BASE_PACKAGES = new Set([
+  "base",
+  "compiler",
+  "datasets",
+  "graphics",
+  "grDevices",
+  "grid",
+  "methods",
+  "parallel",
+  "splines",
+  "stats",
+  "stats4",
+  "tcltk",
+  "tools",
+  "translations",
+  "utils",
+]);
+
+function parseDescription(content: string): RawDep[] {
+  // DCF format: field names at column 0, continuation lines indented with
+  // whitespace. We walk lines into logical fields first, then split each
+  // dependency field on commas.
+  const fields: Record<string, string> = {};
+  let currentKey: string | null = null;
+  for (const raw of content.split(/\r?\n/)) {
+    if (/^\s/.test(raw) && currentKey) {
+      fields[currentKey] += " " + raw.trim();
+      continue;
+    }
+    const m = raw.match(/^([A-Za-z][\w.]*):\s*(.*)$/);
+    if (m) {
+      currentKey = m[1];
+      fields[currentKey] = m[2];
+    } else {
+      currentKey = null;
+    }
+  }
+
+  const deps: RawDep[] = [];
+  const seen = new Set<string>();
+  // LinkingTo is intentional: it's where R packages declare compile-time
+  // C++ bindings (Rcpp, RcppEigen, TMB — highly relevant for scientific
+  // packages like FIMS). Enhances is optional and usually empty.
+  for (const key of ["Depends", "Imports", "LinkingTo", "Suggests"]) {
+    const value = fields[key];
+    if (!value) continue;
+    for (const entry of value.split(",")) {
+      const trimmed = entry.trim();
+      if (!trimmed) continue;
+      // "pkg (>= 1.2.3)" or "pkg"
+      const parsed = trimmed.match(/^([A-Za-z][\w.]*)\s*(?:\(([^)]+)\))?/);
+      if (!parsed) continue;
+      const name = parsed[1];
+      if (name === "R" || R_BASE_PACKAGES.has(name)) continue;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      deps.push({ name, requested: (parsed[2] || "*").trim() });
+    }
+  }
+  return deps;
+}
+
 function parseManifest(m: Manifest): RawDep[] {
   switch (m.ecosystem) {
     case "node":
@@ -243,6 +308,8 @@ function parseManifest(m: Manifest): RawDep[] {
       return parseGemfile(m.content);
     case "php":
       return parseComposerJson(m.content);
+    case "r":
+      return parseDescription(m.content);
   }
 }
 
@@ -316,6 +383,22 @@ async function resolveRubyGems(name: string): Promise<Partial<ResolvedDep>> {
   return { latest: json.version ?? null, deprecated: null };
 }
 
+async function resolveCran(name: string): Promise<Partial<ResolvedDep>> {
+  // crandb.r-pkg.org is a lightweight JSON mirror of CRAN metadata. We
+  // intentionally don't hit r-pkg.org itself — that's HTML.
+  const r = await fetch(`https://crandb.r-pkg.org/${encodeURIComponent(name)}`, {
+    headers: UA,
+  });
+  if (!r.ok) return { error: `cran ${r.status}` };
+  const json = (await r.json()) as { Version?: string; Archived?: string };
+  return {
+    latest: json.Version ?? null,
+    // CRAN "archives" packages that are no longer maintained — the closest
+    // thing it has to deprecation. Surface it so the audit flags them.
+    deprecated: json.Archived ? "archived on CRAN" : null,
+  };
+}
+
 async function resolvePackagist(name: string): Promise<Partial<ResolvedDep>> {
   // Packagist package names are "vendor/name".
   if (!name.includes("/")) return { error: "not a packagist package" };
@@ -355,6 +438,9 @@ async function resolveDep(
         break;
       case "php":
         resolved = await resolvePackagist(dep.name);
+        break;
+      case "r":
+        resolved = await resolveCran(dep.name);
         break;
     }
     return {
@@ -399,7 +485,7 @@ export const checkDependencies: Action = {
   name: "CHECK_DEPENDENCIES",
   similes: ["DEP_AUDIT", "DEPENDENCY_HEALTH", "AUDIT_DEPS"],
   description:
-    "Audit a repository's dependencies across Node, Python, Rust, Go, Ruby, and PHP. Use when the user asks about dependency health, updates, or vulnerabilities.",
+    "Audit a repository's dependencies across Node, Python, Rust, Go, Ruby, PHP, and R. Use when the user asks about dependency health, updates, or vulnerabilities.",
   examples: [
     "are my dependencies okay",
     "audit my deps",
@@ -408,7 +494,7 @@ export const checkDependencies: Action = {
 
   validate: async (ctx, input) => {
     const t = input.text.toLowerCase();
-    return /\b(dep(endenc(y|ies))?|package\.json|pyproject|cargo|go\.mod|gemfile|composer|outdated|audit)\b/.test(
+    return /\b(dep(endenc(y|ies))?|package\.json|pyproject|cargo|go\.mod|gemfile|composer|description|cran|outdated|audit)\b/.test(
       t
     );
   },
@@ -438,7 +524,7 @@ export const checkDependencies: Action = {
 
     if (found.length === 0) {
       return {
-        text: "I couldn't find a supported manifest (package.json, pyproject.toml, requirements.txt, Cargo.toml, go.mod, Gemfile, composer.json) on the default branch.",
+        text: "I couldn't find a supported manifest (package.json, pyproject.toml, requirements.txt, Cargo.toml, go.mod, Gemfile, composer.json, DESCRIPTION) on the default branch.",
         action: "CHECK_DEPENDENCIES",
         data: {
           repo: `${repo.owner}/${repo.repo}`,
@@ -448,7 +534,7 @@ export const checkDependencies: Action = {
           report: {
             headline: "No supported dependency manifest found",
             health_score: null,
-            notes: "This repo doesn't appear to use a supported package manager. Supported: npm, PyPI, crates.io, Go modules, RubyGems, Packagist.",
+            notes: "This repo doesn't appear to use a supported package manager. Supported: npm, PyPI, crates.io, Go modules, RubyGems, Packagist, CRAN (R).",
           },
         },
       };

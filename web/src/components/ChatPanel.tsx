@@ -1,14 +1,58 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Send, Bot, User, Loader2 } from "lucide-react";
+import {
+  Send,
+  Bot,
+  User,
+  Loader2,
+  GitPullRequest,
+  ListChecks,
+  Calendar,
+  Package,
+  Cpu,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { sendMessage } from "@/lib/agent-client";
 import type { ChatMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+/**
+ * Quick-action suggestions shown above the chat input. One tap fills in a
+ * natural phrasing that the router knows how to match. Covers all 5 custom
+ * actions so users don't have to guess what to ask.
+ */
+const QUICK_ACTIONS: { label: string; prompt: string; Icon: typeof Send }[] = [
+  {
+    label: "Review latest PR",
+    prompt: "review the latest PR and flag any risks",
+    Icon: GitPullRequest,
+  },
+  {
+    label: "Triage issues",
+    prompt: "triage the 10 most recent open issues",
+    Icon: ListChecks,
+  },
+  {
+    label: "Weekly digest",
+    prompt: "summarize what happened in this repo over the last 7 days",
+    Icon: Calendar,
+  },
+  {
+    label: "Audit deps",
+    prompt: "audit the dependencies and tell me what's outdated or deprecated",
+    Icon: Package,
+  },
+  {
+    label: "Check CI",
+    prompt: "check CI status — any failing or flaky workflows?",
+    Icon: Cpu,
+  },
+];
 
 function ThinkingIndicator() {
   const [dots, setDots] = useState(1);
@@ -59,10 +103,9 @@ export function ChatPanel({ repo }: { repo: string }) {
     });
   }, [messages]);
 
-  async function submit() {
-    const text = input.trim();
+  async function runPrompt(rawText: string) {
+    const text = rawText.trim();
     if (!text || sending) return;
-    setInput("");
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
@@ -97,6 +140,13 @@ export function ChatPanel({ repo }: { repo: string }) {
     } finally {
       setSending(false);
     }
+  }
+
+  async function submit() {
+    const text = input.trim();
+    if (!text || sending) return;
+    setInput("");
+    await runPrompt(text);
   }
 
   return (
@@ -139,7 +189,11 @@ export function ChatPanel({ repo }: { repo: string }) {
                   {m.action}
                 </Badge>
               )}
-              <div className="whitespace-pre-wrap break-words">{m.text}</div>
+              {m.role === "agent" ? (
+                <ChatMarkdown repo={repo}>{m.text}</ChatMarkdown>
+              ) : (
+                <div className="whitespace-pre-wrap break-words">{m.text}</div>
+              )}
             </div>
             {m.role === "user" && (
               <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent">
@@ -152,6 +206,24 @@ export function ChatPanel({ repo }: { repo: string }) {
       </div>
 
       <div className="border-t border-border p-3">
+        <div className="thin-scroll mb-2 flex gap-1.5 overflow-x-auto pb-1">
+          {QUICK_ACTIONS.map(({ label, prompt, Icon }) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => runPrompt(prompt)}
+              disabled={sending}
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors",
+                "hover:border-primary/50 hover:bg-primary/10 hover:text-foreground",
+                "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-muted/40 disabled:hover:text-muted-foreground"
+              )}
+            >
+              <Icon className="h-3 w-3" />
+              {label}
+            </button>
+          ))}
+        </div>
         <div className="flex gap-2">
           <Input
             placeholder="Ask about this repo…"

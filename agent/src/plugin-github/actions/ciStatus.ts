@@ -41,8 +41,21 @@ export const ciStatus: Action = {
         per_page: 20,
       });
     } catch (err) {
+      // Distinguish "rate limited" (fixable by adding a PAT) from "no access"
+      // (genuine permission problem) so the user gets actionable advice.
+      const e = err as { status?: number; message?: string };
+      const isRateLimit =
+        e?.status === 403 &&
+        typeof e.message === "string" &&
+        /rate limit/i.test(e.message);
+      const headline = isRateLimit
+        ? "GitHub API rate limit exceeded"
+        : "No GitHub Actions access";
+      const advice = isRateLimit
+        ? "Add a GitHub PAT on the landing page — unauthenticated requests are capped at 60/hour per IP. With a token you get 5,000/hour."
+        : (e?.message ?? "Unknown error");
       return {
-        text: "GitHub Actions isn't enabled for this repo, or I don't have permission to read it.",
+        text: headline,
         action: "CI_STATUS",
         data: {
           repo: `${repo.owner}/${repo.repo}`,
@@ -50,9 +63,9 @@ export const ciStatus: Action = {
           failing_count: 0,
           flaky_count: 0,
           verdict: {
-            headline: "No GitHub Actions access",
+            headline,
             verdict: "unknown",
-            advice: (err as Error).message,
+            advice,
           },
         },
       };
