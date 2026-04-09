@@ -1,6 +1,6 @@
 # OctoMate
 
-**A senior engineer in a box.** OctoMate is an [ElizaOS v2](https://github.com/elizaOS/eliza) agent that reviews pull requests, triages issues, audits dependencies, and reports CI health for any GitHub repo — with a polished Next.js dashboard and a chat panel on the side. It runs as a single Docker container on the [Nosana](https://nosana.io) decentralized GPU network and talks to the hosted Qwen 3.5-27B endpoint provided by the challenge.
+**A senior engineer in a box.** OctoMate is an [ElizaOS v2](https://github.com/elizaOS/eliza) agent that reviews pull requests, triages issues, audits dependencies, and reports CI health for any GitHub repo — with a polished Next.js dashboard and a chat panel on the side. It runs as a single Docker container on the [Nosana](https://nosana.io) decentralized GPU network and talks to the hosted **Qwen 3.5-9B-FP8** endpoint provided by the challenge.
 
 Built for the **Nosana x ElizaOS Builders Challenge** — April 2026.
 
@@ -15,12 +15,12 @@ Point OctoMate at a repo (`owner/repo`) and it gives you:
 | `REVIEW_PR` | Fetches a PR's diff, runs a senior-engineer review: risk level, file notes, suggestions, verdict. |
 | `TRIAGE_ISSUES` | Classifies the 10 most recent open issues by severity (P0–P3), area, suggested labels, and suggested assignee (inferred from recent committers). |
 | `SUMMARIZE_ACTIVITY` | Weekly digest: commits, merged PRs, closed issues, contributors, themes, things worth watching. |
-| `CHECK_DEPENDENCIES` | Reads `package.json` from the default branch, queries npm for latest + deprecations, returns a health score and an upgrade order. |
+| `CHECK_DEPENDENCIES` | Detects the repo's manifest (npm, PyPI, crates.io, Go modules, RubyGems, Packagist, or CRAN), queries the right registry for latest + deprecations, returns a health score and an upgrade order. |
 | `CI_STATUS` | Per-workflow status, fail streaks, flaky-test detection from the last 10 runs. |
 
 Every action is a real ElizaOS v2 `Action` object, backed by Octokit calls and structured-output prompts to Qwen 3.5. The frontend renders each result as a rich card — not just a wall of JSON.
 
-The chat panel on the right of the dashboard shares the repo context: a `repoContext` provider injects live repo state (name, default branch, open PR/issue counts, latest commit) into every LLM turn, so you can just ask *"what changed yesterday?"* and get a grounded answer.
+The chat panel on the right of the dashboard shares the repo context: a `repoContext` provider injects live repo state (name, default branch, open PR/issue counts, latest commit) into every LLM turn, so you can just ask *"what changed yesterday?"* and get a grounded answer. Replies render as real markdown with auto-linkified `#PR`/`owner/repo@sha` refs, and a row of one-tap quick-action chips above the input lets you trigger any of the 5 actions without typing.
 
 ---
 
@@ -37,8 +37,8 @@ The chat panel on the right of the dashboard shares the repo context: a `repoCon
                                                         │
                             ┌───────────────────────────┼──────────────┐
                             ▼                           ▼              ▼
-                     GitHub REST API           Qwen 3.5-27B       npm registry
-                     (via Octokit)             (Nosana-hosted)
+                     GitHub REST API           Qwen 3.5-9B-FP8    package registries
+                     (via Octokit)             (Nosana-hosted)    (npm/PyPI/crates/…)
 ```
 
 **Why one container with two processes?** Cleaner deploy, single public URL, and the agent is never exposed to the open internet — only Next.js is. `scripts/start.sh` traps signals so if either process dies, the whole container restarts.
@@ -119,26 +119,31 @@ Open [http://localhost:3000](http://localhost:3000), paste `vercel/next.js` (or 
 ### Or run it as one Docker container
 
 ```bash
+# Option A — pull the pre-built image
+docker run -p 3000:3000 --env-file .env eshaan677/octomate:latest
+# → http://localhost:3000
+
+# Option B — build it yourself
 pnpm docker:build
 pnpm docker:run
-# → http://localhost:3000
 ```
 
 ---
 
 ## Deploy to Nosana
 
+The pre-built image `docker.io/eshaan677/octomate:latest` is already referenced in [nos_job_def.json](./nos_job_def.json), and the Qwen endpoint is baked in — no secrets to set.
+
 1. **Get free builder credits** at [nosana.com/builders-credits](https://nosana.com/builders-credits).
-2. **Build and push** your image:
+2. **(Optional) Build your own image** instead of using the published one:
    ```bash
    DOCKER_USER=<your-dockerhub-username> ./scripts/deploy.sh
    ```
    This builds, pushes, and patches `nos_job_def.json` with your image reference.
 3. **Deploy** via [deploy.nosana.com](https://deploy.nosana.com):
-   - Connect your Solana wallet.
+   - Sign in (email or Google/GitHub) and connect your Solana wallet.
    - Create a new deployment, paste `nos_job_def.json`.
-   - Set the secret env vars: `NOSANA_QWEN_ENDPOINT`, `NOSANA_QWEN_KEY`.
-   - Pick an RTX 4090/5090 market and deploy.
+   - OctoMate is CPU-only (`"gpu": false`, 2 vCPU / 4 GiB) — the LLM runs on the Nosana-hosted Qwen endpoint, so you don't need a GPU market. Any CPU market works.
 4. **Copy the public URL** — it looks like `https://<job-id>.node.k8s.prd.nos.ci:3000`.
 
 ---
@@ -166,8 +171,8 @@ The action objects in `agent/src/plugin-github/actions/` match the ElizaOS v2 `A
 
 ## Known limitations
 
-- **Ephemeral memory.** Conversation history isn't persisted across container restarts. Fine for a demo; for production, point `DATABASE_URL` at a managed Postgres.
-- **npm-only dep audit.** `CHECK_DEPENDENCIES` reads `package.json` — no Python/Rust/Go support yet.
+- **Ephemeral memory.** Conversation history lives in-process and isn't persisted across container restarts. Fine for a demo; plug in a real store for production.
+- **JS/Python/Rust/Go/Ruby/PHP/R dep audit.** `CHECK_DEPENDENCIES` auto-detects manifests for npm, PyPI, crates.io, Go modules, RubyGems, Packagist, and CRAN — but no Java/Maven, Nix, or system-package support yet.
 - **Rate limits.** Without a GitHub PAT, the frontend's dashboard metadata calls are limited to 60/hour per IP. Supply a classic read-only PAT to bump to 5000/hour.
 
 ---
