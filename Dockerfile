@@ -35,13 +35,20 @@ WORKDIR /app
 COPY --from=build /app/package.json /app/pnpm-workspace.yaml ./
 COPY --from=build /app/pnpm-lock.yaml* ./
 
-# Agent: compiled JS + its node_modules + its character files
+# pnpm uses a virtual store at the workspace root (/app/node_modules/.pnpm),
+# and every package's `node_modules` entries are SYMLINKS into it. If we
+# only copy `agent/node_modules` and `web/node_modules`, those symlinks
+# resolve into nothing and Node crashes with ERR_MODULE_NOT_FOUND.
+# So we copy the root node_modules too — that's where the real content lives.
+COPY --from=build /app/node_modules ./node_modules
+
+# Agent: compiled JS + its node_modules (symlinks) + its character files
 COPY --from=build /app/agent/package.json ./agent/package.json
 COPY --from=build /app/agent/dist ./agent/dist
 COPY --from=build /app/agent/characters ./agent/characters
 COPY --from=build /app/agent/node_modules ./agent/node_modules
 
-# Web: built next output + runtime deps + public assets
+# Web: built next output + runtime deps (symlinks) + public assets
 COPY --from=build /app/web/package.json ./web/package.json
 COPY --from=build /app/web/.next ./web/.next
 COPY --from=build /app/web/node_modules ./web/node_modules

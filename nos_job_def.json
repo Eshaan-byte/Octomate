@@ -11,7 +11,7 @@
       "type": "container/run",
       "id": "octomate",
       "args": {
-        "image": "docker.io/REPLACE_ME/octomate:latest",
+        "image": "docker.io/eshaan677/octomate:latest",
         "gpu": false,
         "expose": [
           {
