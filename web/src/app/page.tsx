@@ -90,10 +90,7 @@ export default function Home() {
               {EXAMPLE_REPOS.map((r) => (
                 <button
                   key={r}
-                  onClick={() => {
-                    setRepo(r);
-                    go(r);
-                  }}
+                  onClick={() => setRepo(r)}
                   className="rounded-md border border-border bg-card px-3 py-1 text-sm hover:bg-accent"
                 >
                   {r}
